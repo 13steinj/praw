@@ -1130,6 +1130,9 @@ class UnauthenticatedReddit(BaseReddit):
 
         """
         params = {'q': query}
+        if 'params' in kwargs:
+            params.update(kwargs['params'])
+            kwargs.pop('params')
         if sort:
             params['sort'] = sort
         if syntax:
