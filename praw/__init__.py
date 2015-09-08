@@ -36,7 +36,7 @@ from praw import decorators, errors
 from praw.handlers import DefaultHandler
 from praw.helpers import normalize_url
 from praw.internal import (_prepare_request, _raise_redirect_exceptions,
-                           _raise_response_exceptions, _to_reddit_list)
+                           _raise_response_exceptions, _to_reddit_list, _submission_url_checker)
 from praw.settings import CONFIG
 from requests import Session
 from requests.compat import urljoin
@@ -1045,14 +1045,24 @@ class UnauthenticatedReddit(BaseReddit):
         if bool(comment_root) and bool(submission_id) is False:
             raise TypeError('comment_root can only be used if '
                             'submission_id is!')
+        if url:
+            type = _submission_url_checker(url)
         if submission_id:
             url = urljoin(self.config['comments'], submission_id)
+            type = 'Full'
             if comment_root:
                 url += "/_/{0}".format(comment_root)
-        return objects.Submission.from_url(self, url,
-                                           comment_limit=comment_limit,
-                                           comment_sort=comment_sort,
-                                           params=params)
+                type = 'Partial'
+        if type is 'Full':
+            return objects.Submission.from_url(self, url,
+                                               comment_limit=comment_limit,
+                                               comment_sort=comment_sort,
+                                               params=params)
+        elif type is 'Partial':
+            return objects.PartialSubmission.from_url(self, url,
+                                               comment_limit=comment_limit,
+                                               comment_sort=comment_sort,
+                                               params=params)
 
     def get_submissions(self, fullnames, *args, **kwargs):
         """Generate Submission objects for each item provided in `fullnames`.

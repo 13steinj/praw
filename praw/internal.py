@@ -21,13 +21,16 @@ The functions in this module are not to be relied upon by third-parties.
 from __future__ import print_function, unicode_literals
 import re
 import six
+from six.moves.urllib.parse import urlparse
 import sys
 from requests import Request, codes, exceptions
 from requests.compat import urljoin
 from praw.decorators import restrict_access
-from praw.errors import (HTTPException, Forbidden, NotFound, InvalidSubreddit,
-                         OAuthException, OAuthInsufficientScope,
-                         OAuthInvalidToken, RedirectException)
+from praw.errors import (ClientException, HTTPException, Forbidden, NotFound,
+                         InvalidSubreddit, OAuthException,
+                         OAuthInsufficientScope, OAuthInvalidToken,
+                         RedirectException)
+from praw.helpers import normalize_url
 
 
 RE_REDIRECT = re.compile('(rand(om|nsfw))|about/sticky')
@@ -210,6 +213,23 @@ def _raise_response_exceptions(response):
             response.raise_for_status()  # These should all be directly mapped
         except exceptions.HTTPError as exc:
             raise HTTPException(_raw=exc.response)
+
+
+def _submission_url_checker(url):
+    """Check the url to be a submission/comment permalink."""
+    url = normalize_url(url)
+    u = urlparse().path.split('/')
+    if not (('comments' is u[1]) or ('comments' is u[3])):
+        raise ClientException('Invalid Submission URL')
+    elif len(u) < 3:
+        raise ClientException('Invalid Submission URL')
+    elif len(u) > 6:
+        type = 'Partial'
+    elif len(u) is 5 and u[3] is '_':
+        type = 'Partial'
+    else:
+        type = 'Full'
+    return type
 
 
 def _to_reddit_list(arg):
