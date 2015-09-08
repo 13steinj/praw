@@ -1019,18 +1019,26 @@ class UnauthenticatedReddit(BaseReddit):
         return objects.Submission.from_json(self.request_json(url,
                                                               params=param))
 
-    def get_submission(self, url=None, submission_id=None, comment_root=None,
-                       comment_limit=0, comment_sort=None, params=None):
-        """Return a Submission object for the given url or submission_id.
+    def get_submission(self, url=None, submission_id=None, comment_limit=0,
+                       comment_root=None, comment_sort=None, params=None):
+        """Return a Submission or PartialSubmision object from the given params.
 
-        :param url: The url to build the Submission object from. If a
-            permalink to a comment, the comment forest will have it's root
-            at that comment. Incompatable with `submission_id`.
+        The object returned will be a Submision object, unless a `url` is a
+        comment permalink or `comment_root` is used with `submission_id`. The
+        PartialSubmission object is 100% backwards compatible with the Submission
+        object, the only differernces are the name as well as the fact that
+        a PartialSubmission object does not retrieve the full comment forest,
+        but rather the comment tree specified.
+
+        :param url: The url to build the Submission object from, or if a
+            permalink to a comment, the PartialSubmission object. Incompatable
+            with `submission_id` and `comment_root`.
         :param submission_id: The id of a submission to build the Submission
             object from. Incompatable with `url`.
         :param comment_root: The root of the comment forest as the comment's
-            id. Only applicable if you are using `submission_id`. This
-            parameter will raise an error otherwise.
+            id. Only applicable if you are using `submission_id`. This parameter
+            will raise an error otherwise. Makes the returned object a
+            PartialSubmission.
         :param comment_limit: The desired number of comments to fetch. If <= 0
             fetch the default number for the session's user. If None, fetch the
             maximum possible.

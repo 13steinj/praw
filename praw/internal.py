@@ -216,18 +216,25 @@ def _raise_response_exceptions(response):
 
 
 def _submission_url_checker(url):
-    """Check the url to be a submission/comment permalink."""
+    """Check if the url will retrieve a Partial or Full Submission."""
     url = normalize_url(url)
-    u = urlparse().path.split('/')
-    if not (('comments' is u[1]) or ('comments' is u[3])):
-        raise ClientException('Invalid Submission URL')
-    elif len(u) < 3:
-        raise ClientException('Invalid Submission URL')
-    elif len(u) > 6:
-        type = 'Partial'
-    elif len(u) is 5 and u[3] is '_':
+    u = urlparse(url).path.split('/')
+    if len(u) > 6:
+        # check for format:
+        # /r/subreddit/comments/id/char/id
+        return 'Partial'
+    elif (len(u) is  5) and (u[2] is not 'r'):
+        # check for format
+        # /comments/id/char/id
         type = 'Partial'
     else:
+        # if both checks fail this
+        # logically must either be
+        # a full submission which is
+        # accounted for or not a
+        # submission at all which
+        # was already checked due to
+        # `get_submission`'s decorator
         type = 'Full'
     return type
 
