@@ -1545,6 +1545,12 @@ class PartialSubmission(Submission):
     method will only return a tree of comments, that was originally
     specified when the submission was getting retrieved
     """
+    def __init__(self):
+        super(PartialSubmission, self).__init__()
+
+    @staticmethod
+    def from_url(*args, **kwargs):
+        return super().from_url(*args, **kwargs)
 
 
 class Subreddit(Messageable, Refreshable):
