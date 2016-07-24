@@ -38,7 +38,8 @@ from praw.helpers import chunk_sequence, normalize_url
 from praw.internal import (_image_type, _prepare_request,
                            _raise_redirect_exceptions,
                            _raise_response_exceptions,
-                           _to_reddit_list, _warn_pyopenssl)
+                           _to_reddit_list, _validate_oauth_grant,
+                           _warn_pyopenssl)
 from praw.settings import CONFIG
 from requests import Session
 from requests.compat import urljoin
@@ -450,7 +451,9 @@ class BaseReddit(object):
 
         tempauth = self._use_oauth
         remaining_attempts = 3 if retry_on_error else 1
-        attempt_oauth_refresh = bool(self.refresh_token)
+        attempt_oauth_refresh = bool(self.refresh_token) or \
+            (bool(self.grant_type) and self.grant_type not in ("authorization_code",
+                                                               "implicit"))
         while True:
             try:
                 self._use_oauth = self.is_oauth_session()
@@ -649,6 +652,8 @@ class OAuth2Reddit(BaseReddit):
     :class:`.Reddit` instead.
 
     """
+    GRANT_TYPES = {'authorization_code', 'client_credentials', 'implicit', 'password'}
+
 
     def __init__(self, *args, **kwargs):
         """Initialize an OAuth2Reddit instance."""
@@ -656,9 +661,14 @@ class OAuth2Reddit(BaseReddit):
         self.client_id = self.config.client_id
         self.client_secret = self.config.client_secret
         self.redirect_uri = self.config.redirect_uri
+        self.grant_type = _validate_oauth_grant(self, fatal=False)
+        self.oauth_username = self.config.user
+        self.oauth_password = self.config.pswd
+        self.GRANT_TYPES.add(urljoin(self.config.oauth_url, 'grants/installed_client'))
 
     def _handle_oauth_request(self, data):
-        auth = (self.client_id, self.client_secret)
+        auth = (self.client_id, self.client_secret) if self.grant_type == "implicit" \
+            else None
         url = self.config['access_token_url']
         response = self._request(url, auth=auth, data=data, raw_response=True)
         if not response.ok:
@@ -673,23 +683,39 @@ class OAuth2Reddit(BaseReddit):
         return retval
 
     @decorators.require_oauth
-    def get_access_information(self, code):
+    def get_access_information(self, code=None):
         """Return the access information for an OAuth2 authorization grant.
 
         :param code: the code received in the request from the OAuth2 server
+            when using the "authorization_code" grant type.
         :returns: A dictionary with the key/value pairs for ``access_token``,
             ``refresh_token`` and ``scope``. The ``refresh_token`` value will
             be None when the OAuth2 grant is not refreshable. The ``scope``
             value will be a set containing the scopes the tokens are valid for.
 
         """
-        if self.config.grant_type == 'password':
-            data = {'grant_type': 'password',
-                    'username': self.config.user,
-                    'password': self.config.pswd}
+        if self.grant_type == 'password':
+            data = {'username': self.oauth_username,
+                    'password': self.oauth_password}
+        elif self.grant_type == 'implicit':
+            raise errors.ClientException("Implicit grant types must let a user authorize "
+                                         "with the url provided in Reddit.get_authorize_url "
+                                         "and then use Reddit.set_access_credentials on the "
+                                         "information parsed from the fragment that reddit "
+                                         "encodes. These can not be refreshed via Reddit.re"
+                                         "fresh_access_information() either.")
+        elif self.grant_type != "authorization_code":
+            if not hasattr(self, '_device_id'):
+                # after being initiated once this should not be changed for the remainder
+                # of the current usage, accordinfg to reddit's instruction.
+                self._device_id = str(uuid1())
+            data = {'device_id': self._device_id}
+        elif code is None:
+            raise errors.ClientException("authorization_code grant types must have a code")
         else:
-            data = {'code': code, 'grant_type': 'authorization_code',
+            data = {'code': code,
                     'redirect_uri': self.redirect_uri}
+        data['grant_type'] = self.grant_type
         retval = self._handle_oauth_request(data)
         return {'access_token': retval['access_token'],
                 'refresh_token': retval.get('refresh_token'),
@@ -704,13 +730,22 @@ class OAuth2Reddit(BaseReddit):
         :param scope: the reddit scope to ask permissions for. Multiple scopes
             can be enabled by passing in a container of strings.
         :param refreshable: when True, a permanent "refreshable" token is
-            issued
+            issued. Only applicable if the grant_type is "authorization_code"
+
+        Only applicable for the "authorization_code" and "implicit" grant types.
 
         """
-        params = {'client_id': self.client_id, 'response_type': 'code',
+        if self.grant_type not in ("implicit", "authorization_code"):
+            raise errors.ClientException("Authorization urls are only applicable for "
+                                         "'implicit' and 'authorization_code' grant types")
+        response_type = "token" if self.grant_type == "implicit" else "code"
+        params = {'client_id': self.client_id, 'response_type': response_type,
                   'redirect_uri': self.redirect_uri, 'state': state,
                   'scope': _to_reddit_list(scope)}
-        params['duration'] = 'permanent' if refreshable else 'temporary'
+        if self.grant_type == "implicit" and refreshable:
+            raise errors.ClientException("'implicit' grants are not refreshable")
+        else:
+            params['duration'] = 'permanent' if refreshable else 'temporary'
         request = Request('GET', self.config['authorize'], params=params)
         return request.prepare().url
 
@@ -718,32 +753,36 @@ class OAuth2Reddit(BaseReddit):
     def has_oauth_app_info(self):
         """Return True when OAuth credentials are associated with the instance.
 
-        The necessary credentials are: ``client_id``, ``client_secret`` and
-        ``redirect_uri``.
+        The necessary credentials are: ``client_id``, ``client_secret``, ``grant_type``
+        and ``redirect_uri``. However, if ``grant_type`` is "implicit", ``client_secret``
+        isn't needed, or if ``grant_type`` is "password", ``redirect_uri`` isn't needed.
 
         """
-        return all((self.client_id is not None,
-                    self.client_secret is not None,
-                    self.redirect_uri is not None))
+        return all((self.client_id is not None, _validate_oauth_grant(self, fatal=False),
+                    (self.client_secret is not None or self.grant_type == "implicit"),
+                    (self.redirect_uri is not None or self.grant_type == "password")))
 
     @decorators.require_oauth
-    def refresh_access_information(self, refresh_token):
+    def refresh_access_information(self, refresh_token=None):
         """Return updated access information for an OAuth2 authorization grant.
 
         :param refresh_token: the refresh token used to obtain the updated
-            information
+            information if using the "authorization_code" grant. Required with
+            the "authorization_code" grant.
         :returns: A dictionary with the key/value pairs for access_token,
-            refresh_token and scope. The refresh_token value will be done when
+            refresh_token and scope. The refresh_token value will be None when
             the OAuth2 grant is not refreshable. The scope value will be a set
             containing the scopes the tokens are valid for.
 
-        Password grants aren't refreshable, so use `get_access_information()`
-        again, instead.
+        All grants except "authorization_code" merely alias to `get_access_information()`.
+        Implicit grant types need to be redisplayed to the user and their tokens manually
+        set with `AuthenticatedReddit.set_access_credentials()`.
         """
-        if self.config.grant_type == 'password':
-            data = {'grant_type': 'password',
-                    'username': self.config.user,
-                    'password': self.config.pswd}
+        if self.grant_type != "authorization_code":
+            return self.get_access_information()
+        elif refresh_token is None:
+            raise errors.ClientException("A refresh_token must be provided when using the "
+                                         "'authorization_code' grant_type")
         else:
             data = {'grant_type': 'refresh_token',
                     'redirect_uri': self.redirect_uri,
@@ -753,7 +792,7 @@ class OAuth2Reddit(BaseReddit):
                 'refresh_token': refresh_token,
                 'scope': set(retval['scope'].split(' '))}
 
-    def set_oauth_app_info(self, client_id, client_secret, redirect_uri):
+    def set_oauth_app_info(self, client_id, client_secret=None, redirect_uri=None, grant_type=None):
         """Set the app information to use with OAuth2.
 
         This function need only be called if your praw.ini site configuration
@@ -765,11 +804,15 @@ class OAuth2Reddit(BaseReddit):
         :param client_id: the client_id of your application
         :param client_secret: the client_secret of your application
         :param redirect_uri: the redirect_uri of your application
+        :param grant_type: the grant_type of your application. Choosing "implicit" is PRAW-specific
+            to set the implicit grant flow (meant for installed apps only wi).
 
         """
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
+        self.grant_type = grant_type
+        _validate_oauth_grant(self, fatal=True)
 
 
 class UnauthenticatedReddit(BaseReddit):
@@ -1337,7 +1380,7 @@ class AuthenticatedReddit(OAuth2Reddit, UnauthenticatedReddit):
     def clear_authentication(self):
         """Clear any existing authentication on the reddit object.
 
-        This function is implicitly called on `login` and
+        This function is implicitly called on `login`, `login_oauth`, and
         `set_access_credentials`.
 
         """
@@ -1382,7 +1425,7 @@ class AuthenticatedReddit(OAuth2Reddit, UnauthenticatedReddit):
         self.evict(evict)
         return self.request_json(self.config['wiki_edit'], data=data)
 
-    def get_access_information(self, code,  # pylint: disable=W0221
+    def get_access_information(self, code=None,  # pylint: disable=W0221
                                update_session=True):
         """Return the access information for an OAuth2 authorization grant.
 
@@ -1509,6 +1552,53 @@ class AuthenticatedReddit(OAuth2Reddit, UnauthenticatedReddit):
         self._authentication = True
         self.user = self.get_redditor(user)
         self.user.__class__ = objects.LoggedInRedditor
+
+    def login_oauth(self, username=None, password=None, client_id=None,
+                    client_secret=None):
+        """Login to reddit via OAuth2 with the password grant_type.
+
+        This is a convenience method that will login to reddit via OAuth2.
+
+        Look for username first in parameter, then praw.ini and finally if both
+        were empty get it from stdin. Look for password in parameter, then
+        praw.ini (but only if username matches that in praw.ini) and finally
+        if they both are empty get it with getpass. Look for client_id in parameter,
+        then praw.ini (but only if username matches that in praw.ini), and finally
+        if both were empty get it from stdin. Look for client_id in parameter, then
+        then praw.ini (but only if username matches that in praw.ini), and finally if
+        if both were empty get it with getpass. Add the variables ``user`` (username),
+        ``pswd`` (password), ``oauth_client_id`` (client_id), and  ``oauth_client_secret``
+        (client_secret) to your praw.ini file to allow for auto-login.
+        """
+        if any(password, client_id, client_secret) and not username:
+            raise Exception('Username must be provided when password, client_id, "
+                            "or client_secret is.')
+        from getpass import getpass
+        user = username or self.config.user
+        if not user:
+            sys.stdout.write('Username: ')
+            sys.stdout.flush()
+            user = sys.stdin.readline().strip()
+            pswd = None
+        else:
+            pswd = password or self.config.pswd
+        if not pswd:
+            pswd = getpass('Password for {0}: '.format(user).encode('ascii', 'ignore'))
+            cid = None
+        else:
+            cid = client_id or self.client_id
+        if not cid:
+            sys.stdout.write('Client ID: ')
+            sys.stdout.flush()
+            cid = sys.stdin.readline().strip()
+            cst = None
+        else:
+            cst = client_secret or self.client_secret
+        if not cst:
+            cst = getpass('Client Secret for {0}: '.format(cid).encode('ascii', 'ignore'))
+        self.set_oauth_app_info(cid, cst, None, grant_type='password')
+        self.oauth_username, self.oauth_password = user, pswd
+        self.get_access_information()
 
     def refresh_access_information(self,  # pylint: disable=W0221
                                    refresh_token=None,
