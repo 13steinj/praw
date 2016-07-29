@@ -4,7 +4,8 @@ from __future__ import print_function, unicode_literals
 from praw import errors
 from praw.objects import Submission
 from six import text_type
-from .helper import OAuthPRAWTest, PRAWTest, betamax
+from six.moves.urllib.parse import urlparse
+from .helper import OAuthPRAWTest, PRAWTest, betamax, NewOAuthPRAWTest
 
 
 class SubmissionTest(PRAWTest):
@@ -341,3 +342,22 @@ class OAuthSubmissionTest(OAuthPRAWTest):
         self.r.refresh_access_information(self.refresh_token['vote'])
         submission = Submission.from_id(self.r, self.submission_edit_id)
         submission.clear_vote()
+
+
+class NewOAuthSubmissionTest(NewOAuthPRAWTest):
+    @betamax()
+    def test_get_duplicates(self):
+        self.r.refresh_access_information(self.refresh_token['new_read'])
+        original = self.r.get_submission(submission_id=self.submission_duplicates_id)
+        duplicates = list(original.get_duplicates(limit=None))
+        # the object filter shouldn't allow this post to be in it's duplicates
+        self.assertNotIn(original, duplicates)
+        parsed = urlparse(original.url)
+        # to reddit www is equal to no subdomain
+        match = parsed.scheme, parsed.netloc.lstrip('www.')
+        duplicate_matches = map(lambda parsed: (parsed.scheme,
+                                                parsed.netloc.lstrip('www.')),
+                                [urlparse(duplicate.url) for
+                                 duplicate in duplicates])
+        all(self.assertEqual(match, duplicate_match) for
+            duplicate_match in duplicate_matches)

@@ -1243,6 +1243,7 @@ class Submission(Editable, Gildable, Hideable, Moderatable, Refreshable,
         self._update_comments(new_comments)
         self._orphaned = {}
 
+    @restrict_access(scope='read')
     def get_duplicates(self, *args, **kwargs):
         """Return a get_content generator for the submission's duplicates.
 

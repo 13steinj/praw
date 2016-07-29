@@ -115,6 +115,7 @@ class PRAWTest(unittest.TestCase):
             'wikiread':         '7302867-PMZfquNPUVYHcrbJkTYpFe9UdAY',
             # new tokens
             'auto_refresh':     '7302867-fd_RVSYjT644cKl4J2oRWeRV_mo',
+            'new_read':         '7302867-m_ImRP7ShR_npbzdU3vuJcmTAx8',
         }
 
         self.other_refresh_token = {
@@ -132,6 +133,7 @@ class PRAWTest(unittest.TestCase):
         self.submission_lock_id = '47rnwf'
         self.submission_sticky_id = '32eucy'
         self.submission_sticky_id2 = '32exei'
+        self.submission_duplicates_id = '4v4flj'
 
         self.custom_header_index = 0
 
