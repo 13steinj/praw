@@ -62,16 +62,21 @@ class RedditorTest(PRAWTest):
 
         self.delay_for_listing_update()
         self.assertEqual(sub, next(user.get_upvoted()))
+        self.assertEqual(sub, next(user.get_liked()))
         sub.downvote()
 
         self.delay_for_listing_update()
         self.assertEqual(sub, next(user.get_downvoted()))
+        self.assertEqual(sub, next(user.get_disliked()))
         self.assertNotEqual(sub, next(user.get_upvoted(params={'u': 1})))
+        self.assertNotEqual(sub, next(user.get_liked(params={'u': 1})))
         sub.upvote()
 
         self.delay_for_listing_update()
         self.assertEqual(sub, next(user.get_upvoted(params={'u': 2})))
+        self.assertEqual(sub, next(user.get_liked(params={'u': 2})))
         self.assertNotEqual(sub, next(user.get_downvoted(params={'u': 2})))
+        self.assertNotEqual(sub, next(user.get_disliked(params={'u': 2})))
 
     @betamax()
     def test_name_lazy_update(self):
