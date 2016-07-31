@@ -204,25 +204,33 @@ class MultiprocessHandler(object):
                 cPickle.dump(kwargs, sock_fp, cPickle.HIGHEST_PROTOCOL)
                 sock_fp.flush()
                 retval = cPickle.load(sock_fp)
-            except:  # pylint: disable=W0702
-                exc_type, exc, _ = sys.exc_info()
-                socket_error = exc_type is socket.error
-                if socket_error and exc.errno == 111:  # Connection refused
+            except socket.error as e:
+                if e.errno == 111:  # Connection refused
                     sys.stderr.write('Cannot connect to multiprocess server. I'
                                      's it running? Retrying in {0} seconds.\n'
                                      .format(delay_time))
+                    sys.stderr.flush()
                     time.sleep(delay_time)
                     delay_time = min(64, delay_time * 2)
-                elif exc_type is EOFError or socket_error and exc.errno == 104:
+                elif read_attempts >= 3 and e.errno == 104:
                     # Failure during socket READ
-                    if read_attempts >= 3:
-                        raise ClientException('Successive failures reading '
-                                              'from the multiprocess server.')
+                    raise ClientException('Successive failures reading '
+                                          'from the multiprocess server.')
+                elif e.errno == 104:
                     sys.stderr.write('Lost connection with multiprocess server'
                                      ' during read. Trying again.\n')
+                    sys.stderr.flush()
                     read_attempts += 1
                 else:
                     raise
+            except EOFError:
+                if read_attempts >= 3:  # Failure during socket READ
+                    raise ClientException('Successive failures reading '
+                                          'from the multiprocess server.')
+                sys.stderr.write('Lost connection with multiprocess server'
+                                 ' during read. Trying again.\n')
+                sys.stderr.flush()
+                read_attempts += 1
             finally:
                 sock_fp.close()
                 sock.close()
@@ -233,6 +241,10 @@ class MultiprocessHandler(object):
     def evict(self, urls):
         """Forward the eviction to the server and return its response."""
         return self._relay(method='evict', urls=urls)
+
+    def clear_cache(self):
+        """Forward the eviction to the server and return its response."""
+        return self._relay(method='clear_cache')
 
     def request(self, **kwargs):
         """Forward the request to the server and return its HTTP response."""

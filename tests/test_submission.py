@@ -348,7 +348,8 @@ class NewOAuthSubmissionTest(NewOAuthPRAWTest):
     @betamax()
     def test_get_duplicates(self):
         self.r.refresh_access_information(self.refresh_token['new_read'])
-        original = self.r.get_submission(submission_id=self.submission_duplicates_id)
+        original = self.r.get_submission(
+            submission_id=self.submission_duplicates_id)
         duplicates = list(original.get_duplicates(limit=None))
         # the object filter shouldn't allow this post to be in it's duplicates
         self.assertNotIn(original, duplicates)
