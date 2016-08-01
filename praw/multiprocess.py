@@ -2,11 +2,11 @@
 
 from __future__ import print_function, unicode_literals
 
-import socket
 import sys
 from optparse import OptionParser
 from praw import __version__
 from praw.handlers import DefaultHandler
+from praw.internal import _is_brokenpipe_socket
 from requests import Session
 from six.moves import cPickle, socketserver  # pylint: disable=F0401
 from threading import Lock, Thread
@@ -26,14 +26,14 @@ class PRAWMultiprocessServer(socketserver.ThreadingTCPServer):
     def handle_error(_, client_addr):
         """Mute tracebacks of common errors."""
         exc_type, exc_value, _ = sys.exc_info()
-        if exc_type is socket.error and exc_value[0] == 32:
+        if _is_brokenpipe_socket(exc_value):
             pass
         elif exc_type is cPickle.UnpicklingError:
             sys.stderr.write('Invalid connection from {0}\n'
                              .format(client_addr[0]))
             sys.stderr.flush()
         else:
-            raise
+            raise exc_value
 
     def server_close(self):
         """Called to clean-up the server."""
@@ -63,11 +63,11 @@ class RequestHandler(socketserver.StreamRequestHandler):
     do_evict = DefaultHandler.evict
     do_clear_cache = DefaultHandler.clear_cache
 
-    @staticmethod
-    def cache_hit_callback(key):
+    @classmethod
+    def cache_hit_callback(cls, key):
         """Output when a cache hit occurs."""
         sys.stdout.write('HIT {0} {1}\n'.format(
-            'POST' if key[1][1] else 'GET', key[0]))
+            cls.cache[key].request.method, key[0]))
         sys.stdout.flush()
 
     @DefaultHandler.with_cache

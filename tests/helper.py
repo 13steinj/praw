@@ -379,6 +379,31 @@ with Betamax.configure() as config:
     config.default_cassette_options['serialize_with'] = 'prettyjson'
 
 
+# Shamelessly stolen from the Py3.3 source code for use on Py2
+class ContextDecorator(object):
+    """A base class that enables context managers to work as decorators."""
+
+    def _recreate_cm(self):
+        """Return a recreated instance of self.
+
+        Allows an otherwise one-shot context manager like
+        _GeneratorContextManager to support use as
+        a decorator via implicit recreation.
+
+        This is a private interface just for _GeneratorContextManager.
+        See issue #11647 for details.
+        """
+        return self
+
+    def __call__(self, func):
+        @wraps(func)
+        def inner(*args, **kwds):
+            with self._recreate_cm():
+                return func(*args, **kwds)
+
+        return inner
+
+
 def betamax(cassette_name=None, pass_recorder=False, **cassette_options):
     """Utilze betamax to record/replay any network activity of the test.
 
@@ -406,9 +431,37 @@ def betamax(cassette_name=None, pass_recorder=False, **cassette_options):
         return betamax_function
     return factory
 
-betamax_custom_header = partial(betamax,
-                                match_requests_on=['method', 'uri',
-                                                   'CustomHeader'])
+
+def betamax_multiprocess(cassette_name=None, pass_recorder=False,
+                         **cassette_options):
+    """Like betamax, but records the activity of the threaded server's
+    RequestHandler."""
+    def factory(function):
+        @wraps(function)
+        def betamax_function(obj):
+            with Betamax(obj.server.RequestHandlerClass.http).use_cassette(
+                    cassette_name or function.__name__,
+                    **cassette_options) as cass:
+                # We need to set the delay to zero for betamaxed requests.
+                # Unfortunately, we don't know if the request actually happened
+                # so tests should only be updated one at a time rather than in
+                # bulk to prevent exceeding reddit's rate limit.
+                obj.r.config.api_request_delay = 0
+                # PRAW's cache is global, so we need to clear it for each test.
+                obj.r.handler.clear_cache()
+                if hasattr(obj, 'betamax_init'):
+                    obj.betamax_init()
+                if pass_recorder:
+                    return function(obj, cass)
+                return function(obj)
+        return betamax_function
+    return factory
+
+betamax_custom_header = partial(
+    betamax, match_requests_on=['method', 'uri', 'CustomHeader'])
+
+betamax_multiprocess_custom_header = partial(
+    betamax_multiprocess, match_requests_on=['method', 'uri', 'CustomHeader'])
 
 
 def flair_diff(root, other):
@@ -421,20 +474,21 @@ def flair_diff(root, other):
     return list(root_items - other_items)
 
 
-def mock_sys_stream(streamname, defaulttext=None):
-    def wrapper(f):
-        @wraps(f)
-        def wrapped(obj):
-            stream = cStringIO()
-            setattr(sys, streamname, stream)
-            if defaulttext is not None:
-                stream.write(defaulttext)
-                stream.seek(0)
-            retval = f(obj)
-            setattr(sys, streamname, getattr(sys, "__{}__".format(streamname)))
-            return retval
-        return wrapped
-    return wrapper
+class mock_sys_stream(ContextDecorator):
+    def __init__(self, streamname, defaulttext=None):
+        self.streamname, self.defaulttext = streamname, defaulttext
+
+    def __enter__(self):
+        stream = cStringIO()
+        setattr(sys, self.streamname, stream)
+        if self.defaulttext is not None:
+            stream.write(self.defaulttext)
+            stream.seek(0)
+        return stream
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        setattr(sys, self.streamname, getattr(sys, "__{}__".format(
+            self.streamname)))
 
 
 def teardown_on_keyboard_interrupt(f):

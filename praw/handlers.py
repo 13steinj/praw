@@ -234,6 +234,9 @@ class MultiprocessHandler(object):
             finally:
                 sock_fp.close()
                 sock.close()
+                if retval is None and kwargs.get('method') == 'clear_cache':
+                    # clear_cache returns None
+                    break
         if isinstance(retval, Exception):
             raise retval  # pylint: disable=E0702
         return retval
