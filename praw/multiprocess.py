@@ -2,12 +2,14 @@
 
 from __future__ import print_function, unicode_literals
 
+import socket
 import sys
+from errno import EPIPE as errno_EPIPE
 from optparse import OptionParser
 from praw import __version__
 from praw.handlers import DefaultHandler
-from praw.internal import _is_brokenpipe_socket
 from requests import Session
+from six import reraise
 from six.moves import cPickle, socketserver  # pylint: disable=F0401
 from threading import Lock, Thread
 
@@ -25,15 +27,24 @@ class PRAWMultiprocessServer(socketserver.ThreadingTCPServer):
     @staticmethod
     def handle_error(_, client_addr):
         """Mute tracebacks of common errors."""
-        exc_type, exc_value, _ = sys.exc_info()
-        if _is_brokenpipe_socket(exc_value):
+        exc_type, exc_value, tb = sys.exc_info()
+        # on Py2 exc_type is socket.error, but on Py3 exc_type
+        # is a subclass of socket.error, an alias of OSError
+        # for more information see PEP 3151.
+        # errnos are not constant across operating systems,
+        # however the errno module will always give the
+        # correct errno as it's auto generated in C
+        if (issubclass(exc_type, socket.error) and
+                exc_value.errno == errno_EPIPE):
             pass
         elif exc_type is cPickle.UnpicklingError:
             sys.stderr.write('Invalid connection from {0}\n'
                              .format(client_addr[0]))
             sys.stderr.flush()
         else:
-            raise exc_value
+            # Py >= 3.3 can't handle an empty raise statement
+            # without a directly exterior try/except block
+            reraise(exc_type, exc_value, tb)
 
     def server_close(self):
         """Called to clean-up the server."""

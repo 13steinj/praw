@@ -5,6 +5,8 @@ from __future__ import print_function, unicode_literals
 import socket
 import sys
 import time
+from errno import (ECONNREFUSED as errno_ECONNREFUSED,
+                   EALREADY as errno_EALREADY)
 from functools import wraps
 from praw.errors import ClientException
 from praw.helpers import normalize_url
@@ -205,18 +207,18 @@ class MultiprocessHandler(object):
                 sock_fp.flush()
                 retval = cPickle.load(sock_fp)
             except socket.error as e:
-                if e.errno == 111:  # Connection refused
+                if e.errno == errno_ECONNREFUSED:  # Connection refused
                     sys.stderr.write('Cannot connect to multiprocess server. I'
                                      's it running? Retrying in {0} seconds.\n'
                                      .format(delay_time))
                     sys.stderr.flush()
                     time.sleep(delay_time)
                     delay_time = min(64, delay_time * 2)
-                elif read_attempts >= 3 and e.errno == 104:
+                elif read_attempts >= 3 and e.errno == errno_EALREADY:
                     # Failure during socket READ
                     raise ClientException('Successive failures reading '
                                           'from the multiprocess server.')
-                elif e.errno == 104:
+                elif e.errno == errno_EALREADY:
                     sys.stderr.write('Lost connection with multiprocess server'
                                      ' during read. Trying again.\n')
                     sys.stderr.flush()

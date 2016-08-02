@@ -1,4 +1,6 @@
+from errno import EPIPE
 from mock import patch
+from os import strerror
 from praw import Reddit, multiprocess
 from praw.handlers import MultiprocessHandler
 import signal
@@ -6,13 +8,12 @@ from six import assertRaisesRegex
 from six.moves.cPickle import UnpicklingError
 import socket
 import sys
-from sys import exc_info as exc__info
 from time import time
 from .helper import (betamax_multiprocess_custom_header, mock_sys_stream,
-                     NewOAuthPRAWTest, unittest, USER_AGENT)
+                     NewOAuthPRAWTest, PRAWTest, USER_AGENT)
 
 
-class MultiProcessUnitTest(unittest.TestCase):
+class MultiProcessUnitTest(PRAWTest):
     @mock_sys_stream('stdout')
     def test_multiprocess_start(self):
         before = time()
@@ -49,26 +50,29 @@ class MultiProcessUnitTest(unittest.TestCase):
 
         def getexcinfo(num):
             try:
-                raise {1: socket.error if sys.version_info < (3, 3)
-                       else BrokenPipeError,  # NOQA
+                raise {1: socket.error,
                        2: UnpicklingError,
-                       3: Exception}[num](32)
+                       3: Exception}[num](EPIPE, strerror(EPIPE))
             except:
-                return exc__info()
+                return sys.exc_info()
 
         with patch.object(sys, 'exc_info', side_effect=[
             getexcinfo(1),
             getexcinfo(2),
             getexcinfo(3),
         ]):
-            server.handle_error('', ('127.0.0.1', 10102))  # pass
+            server.handle_error('', ('127.0.0.1', 10101))  # pass
             with mock_sys_stream('stderr'):
-                server.handle_error('', ('127.0.0.1', 10102))
+                server.handle_error('', ('127.0.0.1', 10101))
                 sys.stderr.seek(0)
                 self.assertEqual('Invalid connection from 127.0.0.1\n',
                                  sys.stderr.read())
-            self.assertRaises(Exception, server.handle_error, '',
-                              ('127.0.0.1', 10102))
+            self.assertEqual(
+                self.assertRaisesAndReturn(
+                    Exception, server.handle_error, '', ('127.0.0.1', 10101)
+                ).args,
+                (EPIPE, strerror(EPIPE)),
+            )
 
         server.server_close()
 

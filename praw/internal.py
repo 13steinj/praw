@@ -30,7 +30,6 @@ from praw.errors import (ClientException, HTTPException, Forbidden, NotFound,
                          InvalidSubreddit, OAuthException,
                          OAuthInsufficientScope, OAuthInvalidToken,
                          RedirectException)
-from socket import error as socket_error
 from warnings import warn
 try:
     from OpenSSL import __version__ as _opensslversion
@@ -105,14 +104,6 @@ def _image_type(image):
             raise ClientException('jpeg image is too small.')
         return 'jpg'
     raise ClientException('`image` must be either jpg or png.')
-
-
-def _is_brokenpipe_socket(error_instance):
-    if sys.version_info >= (3, 3):
-        err_type_match = isinstance(error_instance, BrokenPipeError)  # NOQA
-    else:
-        err_type_match = isinstance(error_instance, socket_error)
-    return err_type_match and error_instance.args[0] == 32
 
 
 def _modify_relationship(relationship, unlink=False, is_sub=False):
