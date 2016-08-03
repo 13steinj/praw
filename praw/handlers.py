@@ -11,7 +11,7 @@ from functools import wraps
 from praw.errors import ClientException
 from praw.helpers import normalize_url
 from requests import Session
-from six import text_type
+from six import string_types
 from six.moves import cPickle  # pylint: disable=F0401
 from threading import Lock
 from timeit import default_timer as timer
@@ -171,7 +171,7 @@ class DefaultHandler(RateLimitHandler):
         Return the number of items removed.
 
         """
-        if isinstance(urls, text_type):
+        if isinstance(urls, string_types):
             urls = [urls]
         urls = set(normalize_url(url) for url in urls)
         retval = 0
