@@ -10,8 +10,10 @@ from six.moves.cPickle import UnpicklingError
 import socket
 import sys
 from time import time
-from .helper import (betamax_multiprocess_custom_header, mock_sys_stream,
-                     NewOAuthPRAWTest, PRAWTest, USER_AGENT)
+from .helper import (betamax_multiprocess_custom_header,
+                     betamax_multiprocess, betamax,
+                     mock_sys_stream, NewOAuthPRAWTest,
+                     PRAWTest, USER_AGENT)
 
 
 class MultiProcessUnitTest(PRAWTest):
@@ -175,3 +177,19 @@ class MultiProcessIntegrationTest(NewOAuthPRAWTest):
                     'Lost connection with multiprocess server'
                     ' during read. Trying again.\n',
                     sys.stderr.read())
+
+    @betamax_multiprocess()
+    def _test_multiprocess_equivalency_server(self):
+        self.r.refresh_access_information(self.refresh_token['new_read'])
+        return list(self.r.get_subreddit(self.sr).get_new())
+
+    @betamax()
+    def _test_multiprocess_equivalency_default(self):
+        self.r.refresh_access_information(self.refresh_token['new_read'])
+        return list(self.r.get_subreddit(self.sr).get_new())
+
+    def test_multiprocess_equivalency(self):
+        from_server = self._test_multiprocess_equivalency_server()
+        super(MultiProcessIntegrationTest, self).setUp()
+        from_default = self._test_multiprocess_equivalency_default()
+        self.assertEqual(from_server, from_default)
