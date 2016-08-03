@@ -91,7 +91,7 @@ class MultiProcessIntegrationTest(NewOAuthPRAWTest):
         self.server_thread.join()
 
     @betamax_multiprocess_custom_header()
-    def test_multiprocess_cache_hit_callback(self):
+    def test_multiprocess_cache(self):
         self.r.refresh_access_information(self.refresh_token['new_read'])
         with self.set_custom_header_match(
                 'test_multiprocess_cache_hit_callback__record'):
@@ -103,6 +103,10 @@ class MultiProcessIntegrationTest(NewOAuthPRAWTest):
                 self.assertEqual(
                     'HIT GET https://oauth.reddit.com/r/reddit_api_test/new\n',
                     sys.stdout.read())
+        # this tests the actual eviction
+        self.r.handler.evict(
+            'https://oauth.reddit.com/r/reddit_api_test/new')
+        self.assertEqual(self.server.RequestHandlerClass.cache, {})
 
     def test_multiprocess_mock_exception(self):
         with patch.object(multiprocess.RequestHandler, 'do_request',

@@ -71,8 +71,8 @@ class RequestHandler(socketserver.StreamRequestHandler):
     timeouts = {}  # store the time items in cache were entered
 
     # Add in methods to evict cache
-    do_evict = DefaultHandler.evict
-    do_clear_cache = DefaultHandler.clear_cache
+    do_evict = classmethod(DefaultHandler.evict.__func__)
+    do_clear_cache = classmethod(DefaultHandler.clear_cache.__func__)
 
     @classmethod
     def cache_hit_callback(cls, key):
