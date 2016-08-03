@@ -5,15 +5,33 @@ from __future__ import print_function, unicode_literals
 import os
 import sys
 from praw import errors
+from praw.internal import _image_type
 from .helper import PRAWTest, betamax
 
 
 class ImageTests(PRAWTest):
+    def setUp(self):
+        super(ImageTests, self).setUp()
+        test_dir = os.path.dirname(sys.modules[__name__].__file__)
+        self.image_dir = os.path.join(test_dir, 'files')
+        self.image_path = os.path.join(self.image_dir, '{0}')
+
     def betamax_init(self):
         self.r.login(self.un, self.un_pswd, disable_warning=True)
         self.subreddit = self.r.get_subreddit(self.sr)
-        test_dir = os.path.dirname(sys.modules[__name__].__file__)
-        self.image_path = os.path.join(test_dir, 'files', '{0}')
+
+    def test__image_type(self):
+        names = ['big', 'white-square.tiff', 'invalid.jpg', 'invalidjpg.jpg']
+        for name in names:
+            with open(self.image_path.format(name), 'rb') as f:
+                self.assertRaises(errors.ClientException,
+                                  _image_type, f)
+
+        with open(self.image_path.format("white-square.png"), 'rb') as f:
+            self.assertEqual('png', _image_type(f))
+
+        with open(self.image_path.format("white-square.jpg"), 'rb') as f:
+            self.assertEqual('jpg', _image_type(f))
 
     @betamax()
     def test_delete_header(self):
