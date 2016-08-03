@@ -116,6 +116,7 @@ class PRAWTest(unittest.TestCase):
             # new tokens
             'auto_refresh':     '7302867-fd_RVSYjT644cKl4J2oRWeRV_mo',
             'new_read':         '7302867-m_ImRP7ShR_npbzdU3vuJcmTAx8',
+            'new_modflair':     '7302867-OQ1CJ56_KZ_6LVC_viqeiudgt7Y',
         }
 
         self.other_refresh_token = {

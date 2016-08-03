@@ -874,15 +874,20 @@ class UnauthenticatedReddit(BaseReddit):
             subreddit.
         :param redditor: Can be either a Redditor object or the name of a
             redditor.
-        :returns: None if the user doesn't exist, otherwise a dictionary
-            containing the keys `flair_css_class`, `flair_text`, and `user`.
+        :returns: None if the user doesn't exist, or their account has
+            been deleted, otherwise a dictionary containing the keys
+            `flair_css_class`, `flair_text`, and `user`.
 
         """
         name = six.text_type(redditor)
         params.update(name=name)
         url = self.config['flairlist'].format(
             subreddit=six.text_type(subreddit))
-        data = self.request_json(url, params=params)
+        try:
+            data = self.request_json(url, params=params)
+        except errors.Forbidden:
+            # user deleted their account
+            return None
         if not data['users'] or \
                 data['users'][0]['user'].lower() != name.lower():
             return None

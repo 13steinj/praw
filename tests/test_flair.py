@@ -2,7 +2,8 @@
 
 from __future__ import print_function, unicode_literals
 from praw import errors
-from .helper import OAuthPRAWTest, PRAWTest, betamax, flair_diff
+from .helper import (OAuthPRAWTest, NewOAuthPRAWTest,
+                     PRAWTest, betamax, flair_diff)
 
 
 class FlairTest(PRAWTest):
@@ -209,3 +210,13 @@ class OAuthFlairTest(OAuthPRAWTest):
     def test_set_individuals_flair_oauth(self):
         self.r.refresh_access_information(self.refresh_token['modflair'])
         self.r.get_subreddit(self.sr).set_flair(self.un, 'foobar')
+
+
+class NewOAuthFlairTest(NewOAuthPRAWTest):
+    @betamax()
+    def test_get_flair_nonexistant_user(self):
+        self.r.refresh_access_information(self.refresh_token['new_modflair'])
+        # Deleted user
+        self.assertIsNone(self.r.get_flair(self.sr, 'INVALID1'))
+        # Non existant user
+        self.assertIsNone(self.r.get_flair(self.sr, 'INVALID111'))
