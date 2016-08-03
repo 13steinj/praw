@@ -96,6 +96,8 @@ class RequestHandler(socketserver.StreamRequestHandler):
         method = data.pop('method')
         try:
             retval = getattr(self, 'do_{0}'.format(method))(**data)
+            if method == 'clear_cache':
+                retval = 0  # don't return None
         except Exception as e:
             # All exceptions should be passed to the client
             retval = e

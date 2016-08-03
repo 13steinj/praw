@@ -1,8 +1,9 @@
-from errno import EPIPE
+import errno
 from mock import patch
 from os import strerror
 from praw import Reddit, multiprocess
-from praw.handlers import MultiprocessHandler
+from praw import handlers
+from praw.errors import ClientException
 import signal
 from six import assertRaisesRegex
 from six.moves.cPickle import UnpicklingError
@@ -52,7 +53,7 @@ class MultiProcessUnitTest(PRAWTest):
             try:
                 raise {1: socket.error,
                        2: UnpicklingError,
-                       3: Exception}[num](EPIPE, strerror(EPIPE))
+                       3: Exception}[num](errno.EPIPE, strerror(errno.EPIPE))
             except:
                 return sys.exc_info()
 
@@ -71,7 +72,7 @@ class MultiProcessUnitTest(PRAWTest):
                 self.assertRaisesAndReturn(
                     Exception, server.handle_error, '', ('127.0.0.1', 10101)
                 ).args,
-                (EPIPE, strerror(EPIPE)),
+                (errno.EPIPE, strerror(errno.EPIPE)),
             )
 
         server.server_close()
@@ -81,7 +82,7 @@ class MultiProcessIntegrationTest(NewOAuthPRAWTest):
     def setUp(self):
         self.configure()
         self.server, self.server_thread = multiprocess.run(return_objects=True)
-        self.r = Reddit(USER_AGENT, handler=MultiprocessHandler())
+        self.r = Reddit(USER_AGENT, handler=handlers.MultiprocessHandler())
 
     def tearDown(self):
         # clean up the server
@@ -104,9 +105,69 @@ class MultiProcessIntegrationTest(NewOAuthPRAWTest):
                     sys.stdout.read())
 
     def test_multiprocess_mock_exception(self):
-        def raiser(*a, **kw):
-            raise Exception('Mocked Exception Raise')
         with patch.object(multiprocess.RequestHandler, 'do_request',
-                          wraps=raiser):
+                          side_effect=Exception('Mocked Exception Raise')):
             assertRaisesRegex(self, Exception, '^Mocked Exception Raise$',
                               next, self.r.get_new())
+
+        with patch.object(handlers.socket.socket, 'connect',
+                          side_effect=socket.error(errno.EPIPE,
+                                                   strerror(errno.EPIPE))):
+            assertRaisesRegex(self, socket.error, strerror(errno.EPIPE),
+                              next, self.r.get_new())
+
+    def test_multiprocess_handler_connection_refused(self):
+        # socket.socket.connect is a C function, so it can't be mocked
+        # appropriately becaause any access to attributes of the object
+        # become NULL when trying to use the unbound method on an instance,
+        # which in turn because the defaults are not applicable to the
+        # socket settings the handler uses, causes the pipe to jam
+        # instead lets shutdown the server, let the connection refuse, then
+        # asynchronously start it back up again. But, this test can not be
+        # run on all platforms, so let's quick return first.
+        if not hasattr(signal, 'SIGALRM'):
+            return
+        self.tearDown()
+
+        def newsig(*a):
+            self.server, self.server_thread = multiprocess.run(
+                return_objects=True)
+        oldsig = signal.signal(signal.SIGALRM, newsig)
+        signal.alarm(2)  # initial wait time is 2 seconds
+        with mock_sys_stream("stderr"):
+            self.r.handler.clear_cache()  # an actual request shouldn't be made
+            sys.stderr.seek(0)
+            self.assertEqual('Cannot connect to multiprocess server. I'
+                             's it running? Retrying in 2 seconds.\n',
+                             sys.stderr.read())
+        signal.signal(signal.SIGALRM, oldsig)
+
+    def test_multiprocess_handler_socket_read_errors(self):
+        with patch.object(handlers.socket.socket, "connect",
+                          side_effect=socket.error(errno.EALREADY,
+                                                   strerror(errno.EALREADY))):
+            with mock_sys_stream("stderr"):
+                assertRaisesRegex(
+                    self, ClientException,
+                    '^Successive failures reading '
+                    'from the multiprocess server\.$',
+                    self.r.handler.clear_cache)
+                sys.stderr.seek(0)
+                self.assertIn(
+                    'Lost connection with multiprocess server'
+                    ' during read. Trying again.\n',
+                    sys.stderr.read())
+
+    def test_multiprocess_handler_pickle_read_errors(self):
+        with patch.object(handlers.cPickle, 'load', side_effect=EOFError()):
+            with mock_sys_stream("stderr"):
+                assertRaisesRegex(
+                    self, ClientException,
+                    '^Successive failures reading '
+                    'from the multiprocess server\.$',
+                    self.r.handler.clear_cache)
+                sys.stderr.seek(0)
+                self.assertIn(
+                    'Lost connection with multiprocess server'
+                    ' during read. Trying again.\n',
+                    sys.stderr.read())

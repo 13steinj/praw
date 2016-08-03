@@ -236,11 +236,10 @@ class MultiprocessHandler(object):
             finally:
                 sock_fp.close()
                 sock.close()
-                if retval is None and kwargs.get('method') == 'clear_cache':
-                    # clear_cache returns None
-                    break
         if isinstance(retval, Exception):
             raise retval  # pylint: disable=E0702
+        if retval == 0 and kwargs.get('method') == 'clear_cache':
+            return None  # clear_cache should return None
         return retval
 
     def evict(self, urls):
