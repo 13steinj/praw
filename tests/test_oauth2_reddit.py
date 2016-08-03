@@ -4,7 +4,8 @@ from __future__ import print_function, unicode_literals
 
 from praw import Reddit, errors, decorators
 from praw.objects import Submission
-from six import text_type
+from six import text_type, assertRaisesRegex
+from six.moves.urllib.parse import urlparse
 from .helper import (PRAWTest, NewOAuthPRAWTest, USER_AGENT, betamax,
                      betamax_custom_header, mock_sys_stream)
 
@@ -263,6 +264,29 @@ class OAuth2RedditTest(PRAWTest):
         self.assertTrue(self.r.user is None)
         self.r.refresh_access_information(self.refresh_token['edit'])
         self.assertTrue(self.r.user is None)
+
+
+class NewOAuth2RedditTest(NewOAuthPRAWTest):
+    @betamax()
+    def test_domain_listing(self):
+        domain = 'google.com'
+        assertRaisesRegex(self, TypeError, '^Invalid sort parameter\.$',
+                          self.r.get_domain_listing, domain, sort='INVALID')
+
+        assertRaisesRegex(self, TypeError, '^Invalid period parameter\.$',
+                          self.r.get_domain_listing, domain, period='INVALID')
+
+        assertRaisesRegex(self, TypeError,
+                          '^Period cannot be set for that sort argument\.$',
+                          self.r.get_domain_listing, domain, period='all')
+
+        self.r.refresh_access_information(self.refresh_token['new_read'])
+        uris = list(
+            map(lambda s: '.'.join(urlparse(s.url).netloc.split('.')[-2:]),
+                self.r.get_domain_listing(domain, sort='top',
+                                          period='all', limit=None)))
+        test_uris = [domain for i in range(len(uris))]
+        self.assertEqual(uris, test_uris)
 
 
 class AutoRefreshTest(NewOAuthPRAWTest):
