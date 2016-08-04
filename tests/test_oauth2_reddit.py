@@ -2,10 +2,12 @@
 
 from __future__ import print_function, unicode_literals
 
+from ast import literal_eval
 from praw import Reddit, errors, decorators
 from praw.objects import Submission
-from six import text_type, assertRaisesRegex
+from six import text_type, assertRaisesRegex, PY2
 from six.moves.urllib.parse import urlparse
+import sys
 from .helper import (PRAWTest, NewOAuthPRAWTest, USER_AGENT, betamax,
                      betamax_custom_header, mock_sys_stream)
 
@@ -287,6 +289,49 @@ class NewOAuth2RedditTest(NewOAuthPRAWTest):
                                           period='all', limit=None)))
         test_uris = [domain for i in range(len(uris))]
         self.assertEqual(uris, test_uris)
+
+    @betamax()
+    def test_request_logging(self):
+        old, self.r.config.log_requests = self.r.config.log_requests, 2
+        with mock_sys_stream("stderr"):
+            self.r.refresh_access_information(self.refresh_token['new_submit'])
+            sys.stderr.seek(0)
+            self.assertEqual(
+                sys.stderr.read(56),
+                'POST: https://api.reddit.com/api/v1/access_token/\ndata: ')
+            self.assertEqual(
+                literal_eval(sys.stderr.read(134 if PY2 else 128)),
+                {'redirect_uri': self.new_redirect_uri,
+                 'refresh_token': self.refresh_token['new_submit'],
+                 'grant_type': 'refresh_token'})
+            self.assertEqual(sys.stderr.read(7), '\nauth: ')
+            self.assertEqual(
+                literal_eval(sys.stderr.read(51 if PY2 else 49)),
+                (self.new_client_id, self.new_client_secret))
+            self.assertEqual(sys.stderr.read(), '\nstatus: 200\n')
+        with mock_sys_stream("stderr"):
+            self.r.submit(self.sr, "TEST LOG REQUESTS", "TEST LOG REQUESTS")
+            sys.stderr.seek(0)
+            # this can't be read in one shot because dictionaries have no
+            # guaranteed order across systems, python versions, and even
+            # different cpython runtimes. So a segment has to be read, then
+            # the dictionary segment has to be read and evaluated, then the
+            # rest must be read.
+            self.assertEqual(
+                sys.stderr.read(126),
+                "substituting https://oauth.reddit.com for https://api.reddit"
+                ".com in url\nPOST: https://oauth.reddit.com/api/submit/.json"
+                "\ndata: ")
+            self.assertEqual(
+                literal_eval(sys.stderr.read(108 if PY2 else 100)),
+                {'title': 'TEST LOG REQUESTS',
+                 'kind': 'self', 'sr': 'reddit_api_test',
+                 'text': 'TEST LOG REQUESTS'})
+            self.assertEqual(
+                sys.stderr.read(),
+                "\nstatus: 200\nGET: https://www.reddit.com/r/reddit_api_test"
+                "/comments/4w1tq4/test_log_requests/.json\nstatus: 200\n")
+        self.r.config.log_requests = old
 
 
 class AutoRefreshTest(NewOAuthPRAWTest):
