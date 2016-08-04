@@ -321,6 +321,8 @@ class UnauthenticatedRedditTest(PRAWTest):
     def test_require_user_agent(self):
         self.assertRaises(TypeError, Reddit, user_agent=None)
         self.assertRaises(TypeError, Reddit, user_agent='')
+        self.assertRaises(TypeError, Reddit, user_agent=' ')
+        self.assertRaises(TypeError, Reddit, user_agent='\t')
         self.assertRaises(TypeError, Reddit, user_agent=1)
 
     def test_require_single_arg_get_info(self):

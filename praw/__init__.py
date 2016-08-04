@@ -331,7 +331,8 @@ class BaseReddit(object):
         for more details.
 
         """
-        if not user_agent or not isinstance(user_agent, six.string_types):
+        if (not isinstance(user_agent, six.string_types) or not user_agent or
+                user_agent.isspace()):
             raise TypeError('user_agent must be a non-empty string.')
         if 'bot' in user_agent.lower():
             warn_explicit(
